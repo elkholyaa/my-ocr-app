@@ -3,3 +3,4 @@ uvicorn
 pdfplumber
 spacy
 jinja2
+python-multipart

@@ -2,21 +2,24 @@
 File: main.py
 Purpose:
     - This FastAPI application serves as the main entry point for the OCR app.
-    - It provides a web interface for uploading PDF files, extracts text using pdfplumber,
-      and processes the text with spaCy to extract entities.
-    - The processed data is returned as structured JSON.
+    - It provides a web interface for uploading PDF files.
+    - It uses pdfplumber to extract raw text from the uploaded PDF.
+    - It then calls our custom parsing module (parse_bol_spacy.py) to structure the extracted text
+      into a JSON object matching the desired output.
+    - The structured JSON is returned as the API response.
+    
 Role & Relation:
     - main.py defines two endpoints:
-        • GET "/" returns an HTML form for file upload.
-        • POST "/upload" processes the uploaded PDF.
+        • GET "/" returns an HTML upload form.
+        • POST "/upload" accepts a PDF file, extracts text, parses it, and returns structured JSON.
 Workflow Integration:
     1. The user accesses the home page and uploads a PDF file.
-    2. The "/upload" endpoint reads the file, extracts text via pdfplumber, and processes it with spaCy.
-    3. The response includes both the raw extracted text and the recognized entities.
+    2. The /upload endpoint extracts text using pdfplumber.
+    3. The raw text is passed to the parse_bol_spacy() function.
+    4. The structured JSON data is returned as the API response.
 Educational Comments:
-    - pdfplumber handles complex PDF layouts better than simple regex extraction.
-    - spaCy is used to perform NLP on the extracted text. The pre-trained model "en_core_web_sm" is used here.
-    - This is a basic implementation that you can extend for custom entity extraction or more advanced processing.
+    - pdfplumber is used for robust PDF text extraction.
+    - Our parsing logic in parse_bol_spacy.py combines regex and spaCy for improved accuracy without hard-coding specific names.
 """
 
 import io
@@ -24,14 +27,12 @@ from fastapi import FastAPI, File, UploadFile, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import pdfplumber
-import spacy
 
-# Create the FastAPI app and set up the Jinja2 templates directory.
+# Import our custom parsing module
+from parse_bol_spacy import parse_bol_spacy
+
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-
-# Load the spaCy model (ensure you have run: python -m spacy download en_core_web_sm)
-nlp = spacy.load("en_core_web_sm")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -47,24 +48,21 @@ async def upload_file(file: UploadFile = File(...)):
     Steps:
       1. Validate the file type.
       2. Read the PDF file and extract text using pdfplumber.
-      3. Process the extracted text with spaCy to obtain named entities.
-      4. Return a JSON response containing the raw text and entities.
+      3. Pass the extracted text to the parse_bol_spacy() function to obtain structured JSON.
+      4. Return the structured JSON as the response.
     """
     if file.content_type != "application/pdf":
         return JSONResponse(content={"error": "Invalid file type. Please upload a PDF."}, status_code=400)
-
     try:
         contents = await file.read()
-        # Extract text from the PDF using pdfplumber.
+        # Open the PDF and extract text from all pages.
         with pdfplumber.open(io.BytesIO(contents)) as pdf:
-            full_text = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
-        
-        # Process the extracted text with spaCy.
-        doc = nlp(full_text)
-        entities = [{"label": ent.label_, "text": ent.text} for ent in doc.ents]
-
-        # Return both raw text and recognized entities.
-        return {"raw_text": full_text, "entities": entities}
+            raw_text = "\n".join(
+                page.extract_text() for page in pdf.pages if page.extract_text()
+            )
+        # Parse the raw text to produce structured JSON.
+        parsed_data = parse_bol_spacy(raw_text)
+        return {"parsed_data": parsed_data}
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
